@@ -5,6 +5,7 @@ import { ArrowDownRight, ArrowRight, ArrowUpRight, Bus, CalendarDays, Check, Che
 
 type Activity = { petrol: number; diesel: number; twoWheeler: number; apparel: number; footwear: number; transit: number; saplings: number; careDays: number }
 type Profile = { height: string; weight: string; age: string; commute: string }
+type DailyLog = { activity: Activity; gross: number; offset: number; net: number }
 const emptyActivity: Activity = { petrol: 0, diesel: 0, twoWheeler: 0, apparel: 0, footwear: 0, transit: 0, saplings: 0, careDays: 0 }
 const factors: Record<keyof Activity, number> = { petrol: 0.21, diesel: 0.25, twoWheeler: 0.07, apparel: 8, footwear: 12, transit: 0, saplings: 0, careDays: 0 }
 const offsets: Record<keyof Activity, number> = { petrol: 0, diesel: 0, twoWheeler: 0, apparel: 0, footwear: 0, transit: 0.18, saplings: 2.3, careDays: 0.12 }
@@ -25,6 +26,27 @@ const fieldLabels: { key: keyof Activity; label: string; unit: string; icon: typ
   { key: "saplings", label: "Saplings planted", unit: "trees", icon: Sprout, group: "offset" },
   { key: "careDays", label: "Plant care days", unit: "days", icon: Leaf, group: "offset" },
 ]
+
+function calculateActivity(activity: Activity): DailyLog {
+  const gross = fieldLabels.filter((field) => field.group === "add").reduce((sum, field) => sum + activity[field.key] * factors[field.key], 0)
+  const offset = fieldLabels.filter((field) => field.group === "offset").reduce((sum, field) => sum + activity[field.key] * offsets[field.key], 0)
+  return { activity, gross, offset, net: Math.max(0, gross - offset) }
+}
+
+function createMockHistory(): Record<number, DailyLog> {
+  const today = new Date().getDate()
+  const loggedDays = [1, 2, 3, 5, 6, 7, 9, 10, 12, 13, 14, 16, 17].filter((day) => day < today)
+  return Object.fromEntries(loggedDays.map((day) => [day, calculateActivity({
+    petrol: day % 4 === 0 ? 7 : 0,
+    diesel: day % 5 === 0 ? 6 : 0,
+    twoWheeler: day % 2 === 0 ? 13 : 0,
+    apparel: day % 6 === 0 ? 1 : 0,
+    footwear: day % 13 === 0 ? 1 : 0,
+    transit: day % 3 === 0 ? 4 : 0,
+    saplings: day % 11 === 0 ? 1 : 0,
+    careDays: day % 7 === 0 ? 2 : 0,
+  })]))
+}
 
 function Navbar({ onProfile }: { onProfile: () => void }) {
   const [open, setOpen] = useState(false)
@@ -47,15 +69,22 @@ function Hero({ onUpdate, daily }: { onUpdate: () => void; daily: number }) {
   </section>
 }
 
-function StreakCalendar({ days, streak }: { days: number[]; streak: number }) {
-  const today = new Date().getDate()
-  const first = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay()
-  const total = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()
+function StreakCalendar({ history, streak, selectedDay, onSelectDay }: { history: Record<number, DailyLog>; streak: number; selectedDay: number | null; onSelectDay: (day: number) => void }) {
+  const now = new Date()
+  const today = now.getDate()
+  const first = new Date(now.getFullYear(), now.getMonth(), 1).getDay()
+  const total = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
   const cells = [...Array(first).fill(null), ...Array.from({ length: total }, (_, i) => i + 1)]
-  return <section className="panel calendar-panel" id="calendar"><div className="panel-heading"><div><div className="section-kicker">YOUR CONSISTENCY</div><h2>Activity calendar</h2></div><button className="month-pill" aria-label="Current month"><CalendarDays size={14} /> {new Date().toLocaleString("en", { month: "short", year: "numeric" })}</button></div>
+  const selectedLog = selectedDay === null ? null : history[selectedDay]
+  return <section className="panel calendar-panel" id="calendar"><div className="panel-heading"><div><div className="section-kicker">YOUR CONSISTENCY</div><h2>Activity calendar</h2></div><span className="month-pill"><CalendarDays size={14} /> {now.toLocaleString("en", { month: "short", year: "numeric" })}</span></div>
     <div className="streak-banner"><span className="streak-icon"><Zap size={20} fill="currentColor" /></span><div><strong>{streak} day streak</strong><span>You&apos;re building a lovely habit</span></div><span className="streak-sparks">✳ ✳ ✳</span></div>
-    <div className="calendar-grid" role="grid" aria-label="Monthly carbon activity calendar">{["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <span className="weekday" key={`${d}${i}`}>{d}</span>)}{cells.map((day, i) => <span key={i} className={`day-cell ${day ? day > today ? "future" : days.includes(day) ? "sustainable" : "deficit" : "empty"} ${day === today ? "today" : ""}`} aria-label={day ? `Day ${day}${days.includes(day) ? ", sustainable" : day < today ? ", over guideline" : ""}` : undefined}>{day}</span>)}</div>
+    <div className="calendar-grid" role="grid" aria-label="Monthly carbon activity calendar">{["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <span className="weekday" key={`${d}${i}`}>{d}</span>)}{cells.map((day, i) => {
+      const log = day === null ? undefined : history[day]
+      const status = !day || day > today ? "future" : !log ? "unlogged" : log.net <= 5 ? "sustainable" : "deficit"
+      return day ? <button key={i} type="button" role="gridcell" aria-pressed={day === selectedDay} aria-label={`Day ${day}${log ? `, ${log.net <= 5 ? "sustainable" : "over guideline"}, ${log.net.toFixed(1)} kg CO2e` : day > today ? ", upcoming" : ", no activity logged"}`} disabled={!log} onClick={() => onSelectDay(day)} className={`day-cell ${status} ${day === today ? "today" : ""} ${day === selectedDay ? "selected-day" : ""}`}>{day}</button> : <span key={i} className="day-cell empty" aria-hidden="true" />
+    })}</div>
     <div className="calendar-legend"><span><i className="legend-dot green" />Sustainable</span><span><i className="legend-dot orange" />Over guideline</span><span><i className="legend-dot blank" />Not logged</span></div>
+    {selectedLog && selectedDay !== null && <div className="day-detail" aria-live="polite"><div className="day-detail-heading"><span><CalendarDays size={15} /> {now.toLocaleString("en", { month: "long" })} {selectedDay}</span><span className={`day-status ${selectedLog.net <= 5 ? "good" : "high"}`}>{selectedLog.net <= 5 ? "Sustainable" : "Over guideline"}</span></div><div className="day-detail-stats"><div><small>GROSS</small><strong>{selectedLog.gross.toFixed(1)} <span>kg</span></strong></div><div><small>OFFSETS</small><strong>−{selectedLog.offset.toFixed(1)} <span>kg</span></strong></div><div><small>NET CO₂e</small><strong>{selectedLog.net.toFixed(1)} <span>kg</span></strong></div></div><div className="day-activity-list">{fieldLabels.filter((field) => selectedLog.activity[field.key] > 0).map((field) => <span key={field.key}>{field.label} <strong>{selectedLog.activity[field.key]} {field.unit}</strong></span>)}{fieldLabels.every((field) => selectedLog.activity[field.key] === 0) && <span>No activity details recorded.</span>}</div></div>}
   </section>
 }
 
@@ -97,15 +126,17 @@ function ActivityModal({ onSave, onClose }: { onSave: (a: Activity) => void; onC
 
 export default function CarbonApp() {
   const [activity, setActivity] = useState<Activity>(emptyActivity)
-  const [loggedDays, setLoggedDays] = useState<number[]>([1, 2, 3, 5, 6, 7, 9, 10, 12, 13, 14, 16, 17, 19, 20, 21, 23, 24, 26])
+  const [history, setHistory] = useState<Record<number, DailyLog>>(() => createMockHistory())
+  const [selectedDay, setSelectedDay] = useState<number | null>(() => Math.max(...Object.keys(createMockHistory()).map(Number)))
   const [modal, setModal] = useState<"profile" | "activity" | null>(null)
   const [profile, setProfile] = useState<Profile>({ height: "", weight: "", age: "", commute: "" })
   const gross = fieldLabels.filter((f) => f.group === "add").reduce((sum, f) => sum + activity[f.key] * factors[f.key], 0)
   const offset = fieldLabels.filter((f) => f.group === "offset").reduce((sum, f) => sum + activity[f.key] * offsets[f.key], 0)
   const daily = activity === emptyActivity ? 4.8 : Math.max(0, gross - offset)
+  const loggedDays = Object.keys(history).map(Number)
   const streak = loggedDays.includes(new Date().getDate()) ? 8 : 7
-  return <main><Navbar onProfile={() => setModal("profile")} /><Hero onUpdate={() => setModal("activity")} daily={daily} /><div className="dashboard-wrap"><div className="dashboard-grid"><StreakCalendar days={loggedDays} streak={streak} /><Leaderboard score={daily} /></div><TipsSection daily={daily} /></div><footer className="site-footer"><div className="footer-brand"><span className="brand-mark"><Leaf size={17} /></span><strong>carbonengine</strong></div><span>A student-led project for a more thoughtful tomorrow.</span><span className="footer-course">ICS 354 · IET Lucknow <span>·</span> <span className="footer-dot" /> MADE FOR PEOPLE & PLANET</span></footer>
+  return <main><Navbar onProfile={() => setModal("profile")} /><Hero onUpdate={() => setModal("activity")} daily={daily} /><div className="dashboard-wrap"><div className="dashboard-grid"><StreakCalendar history={history} streak={streak} selectedDay={selectedDay} onSelectDay={setSelectedDay} /><Leaderboard score={daily} /></div><TipsSection daily={daily} /></div><footer className="site-footer"><div className="footer-brand"><span className="brand-mark"><Leaf size={17} /></span><strong>carbonengine</strong></div><span>A student-led project for a more thoughtful tomorrow.</span><span className="footer-course">ICS 354 · IET Lucknow <span>·</span> <span className="footer-dot" /> MADE FOR PEOPLE & PLANET</span></footer>
     {modal === "profile" && <ProfileModal profile={profile} onClose={() => setModal(null)} onSave={(p) => { setProfile(p); setModal(null) }} />}
-    {modal === "activity" && <ActivityModal onClose={() => setModal(null)} onSave={(a) => { setActivity(a); setLoggedDays((d) => [...new Set([...d, new Date().getDate()])]); setModal(null) }} />}
+    {modal === "activity" && <ActivityModal onClose={() => setModal(null)} onSave={(a) => { const today = new Date().getDate(); setActivity(a); setHistory((current) => ({ ...current, [today]: calculateActivity(a) })); setSelectedDay(today); setModal(null) }} />}
   </main>
 }
