@@ -1,0 +1,90 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum FactorCategory {
+  TRANSPORT
+  RETAIL
+  TRANSIT_OFFSET
+  BIO_OFFSET
+}
+
+enum VectorType {
+  ADDITIVE
+  SUBTRACTIVE
+}
+
+enum LedgerStatus {
+  SUSTAINABLE
+  DEFICIT
+}
+
+model User {
+  id                 String        @id @default(uuid())
+  handle             String        @unique
+  name               String
+  heightCm           Float?
+  weightKg           Float?
+  age                Int?
+  baselineCommuteKm  Float         @default(0)
+  dailyLimitKg       Float         @default(5.0)
+  monthlyQuotaKg     Float         @default(150.0)
+  createdAt          DateTime      @default(now())
+  activityLogs       ActivityLog[]
+  dailyLedgers       DailyLedger[]
+
+  @@map("users")
+}
+
+model EmissionFactor {
+  id             Int            @id @default(autoincrement())
+  activityKey    String         @unique
+  label          String
+  category       FactorCategory
+  vectorType     VectorType
+  factorValue    Float          // kg CO2e / unit
+  unit           String
+  sourceStandard String         // DEFRA | IPCC
+  activityLogs   ActivityLog[]
+
+  @@map("emission_factors")
+}
+
+model ActivityLog {
+  id             String         @id @default(uuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  factorId       Int
+  factor         EmissionFactor @relation(fields: [factorId], references: [id])
+  logDate        DateTime
+  quantity       Float          // Q_i or M_j
+  factorApplied  Float          // Snapshot of factorValue at time of logging
+  computedCo2e   Float          // Q_i * EF_i or M_j * OF_j
+  createdAt      DateTime       @default(now())
+
+  @@index([userId, logDate])
+  @@map("activity_logs")
+}
+
+model DailyLedger {
+  id            String       @id @default(uuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logDate       DateTime
+  totalGross    Float        @default(0)
+  totalOffset   Float        @default(0)
+  netEmissions  Float        @default(0)
+  budgetDelta   Float        @default(0)
+  status        LedgerStatus
+  topHotspotKey String?
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([userId, logDate])
+  @@index([userId, logDate])
+  @@map("daily_ledger")
+}

@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "server:dev": "cd server && npx pnpm dev",
+    "server:build": "cd server && npx pnpm build",
+    "server:seed": "cd server && npx pnpm seed",
+    "server:push": "cd server && npx pnpm prisma:push"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
